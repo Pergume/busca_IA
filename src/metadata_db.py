@@ -4,11 +4,18 @@ import time
 import os
 
 class SteamMetadataDB:
-    def __init__(self, db_path='data/games_metadata.db'):
+    def __init__(self, db_path=None):
         """
         Inicializa a conexão com o banco SQLite e garante que a estrutura
         (tabelas) exista antes de inserirmos qualquer dado.
         """
+        # Resolve o problema do caminho relativo
+        if db_path is None:
+            # Descobre automaticamente onde o 02_metadata_db.py está salvo (pasta src)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            # Volta um nível (para a raiz do projeto) e aponta para a pasta 'data'
+            db_path = os.path.join(current_dir, '..', 'data', 'games_metadata.db')
+
         # Garante que a pasta 'data' exista
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         
@@ -133,10 +140,18 @@ class SteamMetadataDB:
         self.conn.close()
 
 if __name__ == "__main__":
-    # Vamos testar com Hollow Knight (367520) e The Witcher 3 (292030)
-    test_games = [367520, 292030]
+    # Lista expandida com diversos gêneros para enriquecer a semântica do RAG
+    test_games = [
+        367520,   # Hollow Knight (Metroidvania/Souls-like)
+        292030,   # The Witcher 3 (Medieval/RPG)
+        1091500,  # Cyberpunk 2077 (Sci-Fi/RPG)
+        413150,   # Stardew Valley (Farming/Relaxing)
+        379720,   # DOOM (FPS/Action)
+        1196590,  # Resident Evil 4 (Horror/Survival)
+        289070,   # Civilization VI (Strategy)
+        1238840   # Battlefield 1 (FPS/Multiplayer)
+    ]
     
-    # Executa o nosso gerenciador a partir da pasta raiz do projeto
     db = SteamMetadataDB()
     
     for app_id in test_games:

@@ -3,6 +3,8 @@ import time
 import re
 import urllib.parse
 import pandas as pd
+import shutil
+import os
 
 class SteamReviewScraper:
     def __init__(self, app_id, language='brazilian', max_reviews=1000):
@@ -116,9 +118,20 @@ class SteamReviewScraper:
             
         return reviews_data
 
+class reviewFile:
+    def moveReviews(dataFrame, review_path=None):
+        if review_path is None:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            review_path = os.path.join(current_dir,"..","data","reviews_raw")
+
+        # Garante que a pasta 'data' exista
+        os.makedirs(os.path.dirname(review_path), exist_ok=True)
+
+        
+
 if __name__ == "__main__":
     # Exemplo de uso: Hollow Knight (AppID 367520)
-    APP_ID = 367520 
+    APP_ID = 1238840 
     scraper = SteamReviewScraper(app_id=APP_ID, language='brazilian', max_reviews=500)
     
     # Executa a coleta
