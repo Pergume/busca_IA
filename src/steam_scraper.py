@@ -119,6 +119,11 @@ class SteamReviewScraper:
         return reviews_data
 
 class reviewFile:
+    def __init__(self, dataFrame, review_path=None):
+        self.dataFrame = dataFrame
+        self.review_path = review_path
+
+        
     def moveReviews(dataFrame, review_path=None):
         if review_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -127,11 +132,15 @@ class reviewFile:
         # Garante que a pasta 'data' exista
         os.makedirs(os.path.dirname(review_path), exist_ok=True)
 
+        origem = current_dir
+        destino = review_path
+
+        dataFrame.shutil.move(current_dir, review_path)
         
 
 if __name__ == "__main__":
     # Exemplo de uso: Hollow Knight (AppID 367520)
-    APP_ID = 1238840 
+    APP_ID = 1196590
     scraper = SteamReviewScraper(app_id=APP_ID, language='brazilian', max_reviews=500)
     
     # Executa a coleta
@@ -148,3 +157,16 @@ if __name__ == "__main__":
         df.to_csv(f'steam_reviews_{APP_ID}_clean.csv', index=False)
         print("Amostra dos dados limpos:")
         print(df[['voted_up', 'clean_text']].head())
+
+    review_path = None
+
+    if review_path is None:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            review_path = os.path.join(current_dir,"..","data","reviews_raw")
+
+    # Garante que a pasta 'data' exista
+    os.makedirs(os.path.dirname(review_path), exist_ok=True)
+
+    shutil.move(f'steam_reviews_{APP_ID}_clean.csv', review_path)
+
+
