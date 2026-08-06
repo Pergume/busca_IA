@@ -117,25 +117,6 @@ class SteamReviewScraper:
             time.sleep(1) # Respeita o rate limit da Valve
             
         return reviews_data
-
-class reviewFile:
-    def __init__(self, dataFrame, review_path=None):
-        self.dataFrame = dataFrame
-        self.review_path = review_path
-
-        
-    def moveReviews(dataFrame, review_path=None):
-        if review_path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            review_path = os.path.join(current_dir,"..","data","reviews_raw")
-
-        # Garante que a pasta 'data' exista
-        os.makedirs(os.path.dirname(review_path), exist_ok=True)
-
-        origem = current_dir
-        destino = review_path
-
-        dataFrame.shutil.move(current_dir, review_path)
         
 
 if __name__ == "__main__":
@@ -158,6 +139,7 @@ if __name__ == "__main__":
         print("Amostra dos dados limpos:")
         print(df[['voted_up', 'clean_text']].head())
 
+    # Definindo o caminho dos arquivos para mover o csv
     review_path = None
 
     if review_path is None:
@@ -167,6 +149,7 @@ if __name__ == "__main__":
     # Garante que a pasta 'data' exista
     os.makedirs(os.path.dirname(review_path), exist_ok=True)
 
+    # Movendo o arquivo CSV
     shutil.move(f'steam_reviews_{APP_ID}_clean.csv', review_path)
 
 
