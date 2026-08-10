@@ -1,0 +1,17 @@
+# Ambientes Virtuais Python
+venv/
+env/
+.env/
+
+# Cache do Python
+__pycache__/
+*.pyc
+
+# Bancos de Dados e Arquivos Pesados
+*.db
+*.sqlite3
+*.csv
+
+# Pasta do Banco Vetorial ChromaDB
+data/
+chroma_db/
