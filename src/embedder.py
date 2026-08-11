@@ -40,15 +40,16 @@ class SteamEmbedder:
 
     def find_csv_files(self):
         """
-        Procura por arquivos de reviews limpas tanto na raiz quanto na pasta data.
+        Procura por arquivos de reviews limpas especificamente na pasta data/reviews_raw.
         """
-        # Procura por arquivos que sigam o padrão do nosso scraper
+        # Aponta diretamente para a pasta correta (reviews_raw)
+        reviews_dir = os.path.join(self.data_dir, 'reviews_raw')
         pattern = "steam_reviews_*_clean.csv"
-        files_in_root = glob.glob(os.path.join(self.project_root, pattern))
-        files_in_data = glob.glob(os.path.join(self.data_dir, pattern))
         
-        # Junta tudo e remove duplicatas (caso existam)
-        return list(set(files_in_root + files_in_data))
+        # Faz a busca
+        files_found = glob.glob(os.path.join(reviews_dir, pattern))
+        
+        return files_found
 
     def process_and_embed(self, batch_size=500):
         """
@@ -57,7 +58,8 @@ class SteamEmbedder:
         csv_files = self.find_csv_files()
         
         if not csv_files:
-            print("Nenhum arquivo CSV encontrado. Rode o 01_steam_scraper.py primeiro.")
+            print("Nenhum arquivo CSV encontrado na pasta data/reviews_raw/.")
+            print("Rode o 01_steam_scraper.py primeiro.")
             return
 
         for file_path in csv_files:
