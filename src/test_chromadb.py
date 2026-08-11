@@ -43,7 +43,7 @@ def test_semantic_search():
         query_texts=[busca],
         n_results=3 # Traz as 3 reviews que mais chegam perto da 'vibe' da frase
     )
-    
+    #teste
     for i in range(len(resultados['documents'][0])):
         review = resultados['documents'][0][i]
         metadados = resultados['metadatas'][0][i]
