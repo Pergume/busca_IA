@@ -31,7 +31,7 @@ class SteamRAG:
             embedding_function=self.embed_fn
         )
 
-    def retrieve_context(self, query, n_results=10): # ALTERAÇÃO: Mudamos de 5 para 10 reviews
+    def retrieve_context(self, query, n_results=5):
         """
         Busca as reviews no ChromaDB e enriquece com Nome e Tags do SQLite.
         """
