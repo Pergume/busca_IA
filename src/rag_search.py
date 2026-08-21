@@ -3,7 +3,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 import requests
 import json
-import sqlite3 # NOVA IMPORTAÇÃO: Vamos conectar ao banco de metadados!
+import sqlite3 
 
 class SteamRAG:
     def __init__(self):
@@ -31,11 +31,11 @@ class SteamRAG:
             embedding_function=self.embed_fn
         )
 
-    def retrieve_context(self, query, n_results=5):
+    def retrieve_context(self, query, n_results=10):
         """
         Busca as reviews no ChromaDB e enriquece com Nome e Tags do SQLite.
         """
-        print(f"\n🔍 Buscando 10 referências no banco para: '{query}'...")
+        print(f"\n🔍 Buscando referências no banco para: '{query}'...")
         
         resultados = self.collection.query(
             query_texts=[query],
@@ -43,20 +43,17 @@ class SteamRAG:
         )
         
         contexto_formatado = ""
-        jogos_vistos = {} # Usamos um dicionário como "cache" para não fazer a mesma busca no SQLite várias vezes
+        jogos_vistos = {} 
         cursor = self.conn.cursor()
         
         for i, review in enumerate(resultados['documents'][0]):
             app_id = resultados['metadatas'][0][i]['app_id']
             
-            # Se ainda não fomos no SQLite procurar o nome e as tags desse jogo, nós vamos agora:
             if app_id not in jogos_vistos:
-                # Busca o Título
                 cursor.execute("SELECT title FROM Games WHERE app_id = ?", (app_id,))
                 row = cursor.fetchone()
                 title = row[0] if row else f"Jogo Desconhecido ({app_id})"
                 
-                # Busca até 5 Tags do jogo
                 cursor.execute("""
                     SELECT t.tag_name
                     FROM Tags t
@@ -66,13 +63,11 @@ class SteamRAG:
                 """, (app_id,))
                 tags = [r[0] for r in cursor.fetchall()]
                 
-                # Salva no cache
                 jogos_vistos[app_id] = {'title': title, 'tags': tags}
             
             info = jogos_vistos[app_id]
             tags_str = ", ".join(info['tags'])
             
-            # Montamos o texto perfeito para o Llama ler
             contexto_formatado += f"\n--- Review {i+1} ---\n"
             contexto_formatado += f"Jogo: {info['title']}\n"
             contexto_formatado += f"Categorias: {tags_str}\n"
@@ -111,36 +106,33 @@ class SteamRAG:
         """
         Orquestra o pipeline RAG completo.
         """
-        # 1. Recupera o contexto enriquecido
         contexto = self.retrieve_context(user_query)
         
-        # 2. Monta o Prompt com Regras Estritas (Engenharia de Prompt)
+        # O PROMPT DE FERRO: Regras estritas para forçar especificidade e evitar alucinação
         system_prompt = f"""
-        Você é um assistente especialista e detalhista em recomendar jogos da Steam.
-        Abaixo estão opiniões reais de jogadores sobre determinados jogos, incluindo o nome oficial do jogo e suas categorias (tags).
+        Você é um assistente curador de jogos da Steam. O seu objetivo é analisar e recomendar jogos baseando-se APENAS nos dados fornecidos no contexto.
         
-        REGRAS OBRIGATÓRIAS:
-        1. Baseie-se EXCLUSIVAMENTE nas opiniões fornecidas abaixo.
-        2. Refira-se aos jogos SEMPRE PELO NOME (ex: Hollow Knight). Nunca use o ID numérico do jogo na sua resposta final.
-        3. Forneça uma resposta detalhada, longa e bem elaborada. Explore os pontos positivos e negativos citados nas reviews.
-        4. OBRIGATÓRIO: Em algum momento da sua resposta, liste as principais categorias/tags dos jogos recomendados.
-        5. Responda sempre em Português.
+        REGRAS DE RESPOSTA OBRIGATÓRIAS:
+        1. Você só pode mencionar detalhes, mecânicas ou qualidades que estejam EXPRESSAMENTE ESCRITOS nas opiniões dos jogadores no contexto. Não invente nada.
+        2. É OBRIGATÓRIO extrair e usar uma citação direta (entre aspas) de um jogador para CADA jogo recomendado. Se não houver opinião clara para o jogo, não o recomende.
+        3. Escreva um resumo ÚNICO e detalhado para cada jogo. É ESTRITAMENTE PROIBIDO repetir frases genéricas de introdução (como "é um jogo de ação e aventura..." ou "a atmosfera é mantida"). Vá direto aos detalhes específicos citados pelos jogadores.
+        4. OBRIGATÓRIO: Liste as categorias (tags) do jogo.
+        5. Nunca use números de ID numérico na resposta final, use apenas o nome do jogo.
 
-        OPINIÕES DOS JOGADORES E METADADOS (CONTEXTO):
+        CONTEXTO (Use apenas estas informações):
         {contexto}
         
         PERGUNTA DO USUÁRIO:
         {user_query}
         """
         
-        # 3. Pede para a IA gerar a resposta
         self.ask_ollama(system_prompt)
 
 if __name__ == "__main__":
     rag = SteamRAG()
     
     print("="*50)
-    print(" 🎮 STEAM RAG ASSISTANT v2.0 - Llama 3.2 ")
+    print(" 🎮 STEAM RAG ASSISTANT v2.1 - Llama 3.2 ")
     print("="*50)
     
     while True:
