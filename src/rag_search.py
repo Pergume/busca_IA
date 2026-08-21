@@ -31,48 +31,62 @@ class SteamRAG:
             embedding_function=self.embed_fn
         )
 
-    def retrieve_context(self, query, n_results=10):
+    def retrieve_context(self, query):
         """
-        Busca as reviews no ChromaDB e enriquece com Nome e Tags do SQLite.
+        Busca Híbrida de Dois Passos:
+        1. Descobre os 3 jogos mais relevantes.
+        2. Coleta 5 reviews específicas para cada um desses 3 jogos.
         """
-        print(f"\n🔍 Buscando referências no banco para: '{query}'...")
+        print(f"\n🔍 Analisando o banco para identificar os melhores jogos para: '{query}'...")
         
-        resultados = self.collection.query(
+        # Passo 1: Busca ampla para descobrir quais jogos dominam o tema
+        busca_inicial = self.collection.query(
             query_texts=[query],
-            n_results=n_results
+            n_results=50  # Puxa bastante para ter certeza da relevância
         )
         
+        jogos_relevantes = []
+        for meta in busca_inicial['metadatas'][0]:
+            app_id = meta['app_id']
+            if app_id not in jogos_relevantes:
+                jogos_relevantes.append(app_id)
+            if len(jogos_relevantes) == 3: # Limita estritamente a 3 jogos
+                break
+                
         contexto_formatado = ""
-        jogos_vistos = {} 
         cursor = self.conn.cursor()
         
-        for i, review in enumerate(resultados['documents'][0]):
-            app_id = resultados['metadatas'][0][i]['app_id']
+        for app_id in jogos_relevantes:
+            # Pega o nome do jogo
+            cursor.execute("SELECT title FROM Games WHERE app_id = ?", (app_id,))
+            row = cursor.fetchone()
+            title = row[0] if row else f"Jogo Desconhecido ({app_id})"
             
-            if app_id not in jogos_vistos:
-                cursor.execute("SELECT title FROM Games WHERE app_id = ?", (app_id,))
-                row = cursor.fetchone()
-                title = row[0] if row else f"Jogo Desconhecido ({app_id})"
+            # Pega as tags
+            cursor.execute("""
+                SELECT t.tag_name
+                FROM Tags t
+                JOIN Game_Tags gt ON t.tag_id = gt.tag_id
+                WHERE gt.app_id = ?
+                LIMIT 5
+            """, (app_id,))
+            tags = [r[0] for r in cursor.fetchall()]
+            tags_str = ", ".join(tags)
+            
+            reviews_do_jogo = self.collection.query(
+                query_texts=[query],
+                n_results=5,
+                where={"app_id": app_id} # O FILTRO MÁGICO: Exige que seja deste jogo
+            )
+            
+            contexto_formatado += f"\n{'='*40}\n"
+            contexto_formatado += f"JOGO: {title}\n"
+            contexto_formatado += f"CATEGORIAS: {tags_str}\n"
+            contexto_formatado += f"REVIEWS DOS JOGADORES:\n"
+            
+            for i, review in enumerate(reviews_do_jogo['documents'][0]):
+                contexto_formatado += f"  - Opinião {i+1}: \"{review}\"\n"
                 
-                cursor.execute("""
-                    SELECT t.tag_name
-                    FROM Tags t
-                    JOIN Game_Tags gt ON t.tag_id = gt.tag_id
-                    WHERE gt.app_id = ?
-                    LIMIT 5
-                """, (app_id,))
-                tags = [r[0] for r in cursor.fetchall()]
-                
-                jogos_vistos[app_id] = {'title': title, 'tags': tags}
-            
-            info = jogos_vistos[app_id]
-            tags_str = ", ".join(info['tags'])
-            
-            contexto_formatado += f"\n--- Review {i+1} ---\n"
-            contexto_formatado += f"Jogo: {info['title']}\n"
-            contexto_formatado += f"Categorias: {tags_str}\n"
-            contexto_formatado += f"Opinião do Jogador: {review}\n"
-            
         return contexto_formatado
 
     def ask_ollama(self, prompt, model="llama3.1"):
@@ -108,18 +122,21 @@ class SteamRAG:
         """
         contexto = self.retrieve_context(user_query)
         
-        # O PROMPT DE FERRO: Regras estritas para forçar especificidade e evitar alucinação
+        # O PROMPT DE FERRO: Regras estritas para síntese e mecânicas
         system_prompt = f"""
         Você é um assistente curador de jogos da Steam. O seu objetivo é analisar e recomendar jogos baseando-se APENAS nos dados fornecidos no contexto.
         
-        REGRAS DE RESPOSTA OBRIGATÓRIAS:
-        1. Você só pode mencionar detalhes, mecânicas ou qualidades que estejam EXPRESSAMENTE ESCRITOS nas opiniões dos jogadores no contexto. Não invente nada.
-        2. É OBRIGATÓRIO extrair e usar uma citação direta (entre aspas) de um jogador para CADA jogo recomendado. Se não houver opinião clara para o jogo, não o recomende.
-        3. Escreva um resumo ÚNICO e detalhado para cada jogo. É ESTRITAMENTE PROIBIDO repetir frases genéricas de introdução (como "é um jogo de ação e aventura..." ou "a atmosfera é mantida"). Vá direto aos detalhes específicos citados pelos jogadores.
-        4. OBRIGATÓRIO: Liste as categorias (tags) do jogo.
-        5. Nunca use números de ID numérico na resposta final, use apenas o nome do jogo.
+        O contexto contém exatamente 3 jogos, e para cada jogo, existem até 5 opiniões diferentes de jogadores.
 
-        CONTEXTO (Use apenas estas informações):
+        REGRAS DE RESPOSTA OBRIGATÓRIAS:
+        1. Para cada jogo, escreva um resumo SINTETIZADO baseando-se nas múltiplas reviews fornecidas. Não copie e cole apenas uma review, cruze as informações das várias opiniões para criar um parágrafo rico e detalhado sobre a experiência do jogo.
+        2. Mencione explicitamente as MECÂNICAS de gameplay que os jogadores citaram nas opiniões.
+        3. Você só pode mencionar detalhes, mecânicas ou qualidades que estejam EXPRESSAMENTE ESCRITOS nas opiniões do contexto. Não invente nada.
+        4. É OBRIGATÓRIO extrair e usar pelo menos uma citação direta (entre aspas) de um jogador para CADA jogo recomendado para ilustrar o seu ponto.
+        5. OBRIGATÓRIO: Liste as categorias (tags) do jogo exatamente como fornecidas no contexto.
+        6. Nunca use números de ID numérico na resposta final, use apenas o nome do jogo.
+
+        CONTEXTO DOS JOGOS (Use apenas estas informações):
         {contexto}
         
         PERGUNTA DO USUÁRIO:
