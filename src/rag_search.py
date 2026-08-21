@@ -75,7 +75,7 @@ class SteamRAG:
             
         return contexto_formatado
 
-    def ask_ollama(self, prompt, model="llama3.2"):
+    def ask_ollama(self, prompt, model="llama3.1"):
         """
         Envia o prompt para a API local do Ollama e imprime a resposta.
         """
@@ -87,7 +87,7 @@ class SteamRAG:
             "stream": True 
         }
         
-        print("\n🤖 Resposta da IA:\n")
+        print("\n🤖 Resposta da IA (Llama 3.1):\n")
         try:
             response = requests.post(url, json=payload, stream=True)
             response.raise_for_status()
@@ -126,17 +126,17 @@ class SteamRAG:
         {user_query}
         """
         
-        self.ask_ollama(system_prompt)
+        self.ask_ollama(system_prompt, model="llama3.1")
 
 if __name__ == "__main__":
     rag = SteamRAG()
     
     print("="*50)
-    print(" 🎮 STEAM RAG ASSISTANT v2.1 - Llama 3.2 ")
+    print(" 🎮 STEAM RAG ASSISTANT v2.2 - Llama 3.1 ")
     print("="*50)
     
     while True:
-        pergunta = input("\nFaça uma pergunta sobre jogos (ou digite 'sair'): ")
+        pergunta = input("\nFaça uma pergunta sobre jogos (or digite 'sair'): ")
         
         if pergunta.lower().strip() == 'sair':
             break
