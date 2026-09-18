@@ -8,9 +8,9 @@ __pycache__/
 *.pyc
 
 # Bancos de Dados e Arquivos Pesados
-*.db
-*.sqlite3
-*.csv
+#*.db
+#*.sqlite3
+#*.csv
 
 # Pasta do Banco Vetorial ChromaDB
 data/

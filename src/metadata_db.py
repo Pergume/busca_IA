@@ -2,43 +2,30 @@ import sqlite3
 import requests
 import time
 import os
+import re
 
 class SteamMetadataDB:
     def __init__(self, db_path=None):
-        """
-        Inicializa a conexão com o banco SQLite e garante que a estrutura
-        (tabelas) exista antes de inserirmos qualquer dado.
-        """
-        # Resolve o problema do caminho relativo
         if db_path is None:
-            # Descobre automaticamente onde o 02_metadata_db.py está salvo (pasta src)
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            # Volta um nível (para a raiz do projeto) e aponta para a pasta 'data'
             db_path = os.path.join(current_dir, '..', 'data', 'games_metadata.db')
 
-        # Garante que a pasta 'data' exista
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        
-        # Conecta ao banco (se o arquivo não existir, o SQLite cria na hora)
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self._create_tables()
 
     def _create_tables(self):
-        """
-        Cria as tabelas usando a modelagem relacional ideal para buscas rápidas.
-        Usamos 'IF NOT EXISTS' para rodar este script várias vezes sem quebrar o banco.
-        """
-        # 1. Tabela de Jogos
+        # ATUALIZAÇÃO: Adicionada a coluna "synopsis" na tabela Games
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Games (
                 app_id INTEGER PRIMARY KEY,
                 title TEXT NOT NULL,
+                synopsis TEXT,
                 developer TEXT
             )
         ''')
 
-        # 2. Tabela de Tags (Únicas)
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Tags (
                 tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +33,6 @@ class SteamMetadataDB:
             )
         ''')
 
-        # 3. Tabela de Associação (Qual jogo tem qual tag)
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Game_Tags (
                 app_id INTEGER,
@@ -57,80 +43,85 @@ class SteamMetadataDB:
             )
         ''')
         
-        # Cria um índice para acelerar a busca por tags no futuro
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_tag_name ON Tags(tag_name)')
-        
         self.conn.commit()
 
     def fetch_game_info(self, app_id):
         """
-        Busca os dados do jogo usando a API pública do SteamSpy.
+        Agora fazemos DUAS buscas: Uma no SteamSpy (para as tags da comunidade)
+        e uma na Steam Oficial (para a Sinopse do jogo).
         """
-        url = f"https://steamspy.com/api.php?request=appdetails&appid={app_id}"
-        print(f"Buscando metadados do AppID {app_id} no SteamSpy...")
+        print(f"Buscando metadados do AppID {app_id}...")
         
+        # 1. Busca no SteamSpy
+        spy_url = f"https://steamspy.com/api.php?request=appdetails&appid={app_id}"
+        game_data = None
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(spy_url, timeout=10)
             response.raise_for_status()
-            data = response.json()
-            
-            # O SteamSpy retorna o próprio app_id se falhar em achar o jogo
-            if not data.get('name'):
-                print(f"Jogo {app_id} não encontrado ou inválido na API.")
+            game_data = response.json()
+            if not game_data.get('name'):
+                print(f"Jogo {app_id} não encontrado no SteamSpy.")
                 return None
-                
-            return data
         except requests.exceptions.RequestException as e:
-            print(f"Erro ao buscar metadados: {e}")
+            print(f"Erro ao buscar no SteamSpy: {e}")
             return None
 
+        # 2. Busca na API Oficial da Steam (Para pegar a sinopse em PT-BR)
+        steam_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=brazilian"
+        synopsis = "Sinopse não disponível."
+        try:
+            steam_response = requests.get(steam_url, timeout=10)
+            steam_response.raise_for_status()
+            steam_json = steam_response.json()
+            
+            # A API da steam retorna os dados dentro da chave do proprio ID
+            if steam_json and str(app_id) in steam_json and steam_json[str(app_id)]['success']:
+                raw_synopsis = steam_json[str(app_id)]['data'].get('short_description', synopsis)
+                # Limpa marcações HTML (como <br>, <i>) que a Steam às vezes manda
+                synopsis = re.sub(r'<[^>]+>', '', raw_synopsis)
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao buscar sinopse na Steam Oficial: {e}")
+
+        # Guarda a sinopse limpa dentro dos nossos dados
+        game_data['synopsis'] = synopsis
+        return game_data
+
     def insert_game(self, app_id):
-        """
-        Orquestra a inserção do jogo, suas tags e os relacionamentos no banco.
-        """
         game_data = self.fetch_game_info(app_id)
-        
         if not game_data:
             return
 
         title = game_data.get('name')
         developer = game_data.get('developer')
+        synopsis = game_data.get('synopsis')
         
-        # 'tags' no SteamSpy é um dicionário: {"RPG": 1000, "Action": 500}
-        # Nós só queremos os nomes das tags (as chaves)
         tags_dict = game_data.get('tags', {})
-        if isinstance(tags_dict, list): # As vezes a API retorna lista vazia se não houver tags
-            tags_list = []
-        else:
-            tags_list = list(tags_dict.keys())
+        tags_list = [] if isinstance(tags_dict, list) else list(tags_dict.keys())
 
         try:
-            # 1. Insere o Jogo (INSERT OR IGNORE evita erro se o jogo já estiver no banco)
+            # Inserindo o jogo agora com a coluna synopsis
             self.cursor.execute('''
-                INSERT OR IGNORE INTO Games (app_id, title, developer)
-                VALUES (?, ?, ?)
-            ''', (app_id, title, developer))
+                INSERT OR IGNORE INTO Games (app_id, title, synopsis, developer)
+                VALUES (?, ?, ?, ?)
+            ''', (app_id, title, synopsis, developer))
 
-            # 2. Insere as Tags e faz a associação
             for tag in tags_list:
-                # Tenta inserir a tag. Se ela já existir, o IGNORE pula silenciosamente.
                 self.cursor.execute('''
                     INSERT OR IGNORE INTO Tags (tag_name)
                     VALUES (?)
                 ''', (tag,))
                 
-                # Descobre qual é o ID numérico dessa tag
                 self.cursor.execute('SELECT tag_id FROM Tags WHERE tag_name = ?', (tag,))
                 tag_id = self.cursor.fetchone()[0]
 
-                # Cria a associação Jogo <-> Tag
                 self.cursor.execute('''
                     INSERT OR IGNORE INTO Game_Tags (app_id, tag_id)
                     VALUES (?, ?)
                 ''', (app_id, tag_id))
 
             self.conn.commit()
-            print(f"Sucesso! '{title}' e suas {len(tags_list)} tags foram salvas no banco.")
+            print(f"Sucesso! '{title}' salvo com sinopse e {len(tags_list)} tags.")
             
         except sqlite3.Error as e:
             print(f"Erro de banco de dados ao inserir {app_id}: {e}")
@@ -140,23 +131,13 @@ class SteamMetadataDB:
         self.conn.close()
 
 if __name__ == "__main__":
-    # Lista expandida com diversos gêneros para enriquecer a semântica do RAG
-    test_games = [
-        367520,   # Hollow Knight (Metroidvania/Souls-like)
-        292030,   # The Witcher 3 (Medieval/RPG)
-        1091500,  # Cyberpunk 2077 (Sci-Fi/RPG)
-        413150,   # Stardew Valley (Farming/Relaxing)
-        379720,   # DOOM (FPS/Action)
-        1196590,  # Resident Evil 4 (Horror/Survival)
-        289070,   # Civilization VI (Strategy)
-        1238840   # Battlefield 1 (FPS/Multiplayer)
-    ]
+    # Testando com os jogos que você já raspou: Hollow Knight, Witcher 3, Cyberpunk, Stardew Valley, DOOM (2016), Resident Evil 4, Civilization 6, Battlefield 1
+    test_games = [367520, 292030, 1091500, 413150, 379720, 1196590, 289070, 1238840 ]
     
     db = SteamMetadataDB()
-    
     for app_id in test_games:
         db.insert_game(app_id)
-        time.sleep(1.5) # Respeito ao limite da API do SteamSpy
+        time.sleep(1.5) 
         
     db.close()
-    print("\nBanco de dados atualizado com sucesso. Verifique a pasta 'data/'.")
+    print("\nBanco de dados atualizado com sucesso!")
